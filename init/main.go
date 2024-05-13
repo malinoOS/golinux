@@ -1,16 +1,15 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"os"
-	"strings"
+
+	//"os/exec"
 	"syscall"
 
 	"github.com/go-ini/ini"
 )
 
-var running bool = true
 var cfg ini.File
 
 func main() {
@@ -38,7 +37,15 @@ func main() {
 		}
 	}
 
-	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("Spawning the Go Shell (gosh)...\n")
+
+	//exec.Command("/bin/gosh", "")
+	syscall.Exec("/bin/gosh", []string{"/bin/gosh"}, os.Environ())
+
+	for true {
+	}
+
+	/*reader := bufio.NewReader(os.Stdin)
 	for running {
 		fmt.Print("# ")
 		cmdString, err := readCommand(reader)
@@ -49,10 +56,10 @@ func main() {
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 		}
-	}
+	}*/
 }
 
-func readCommand(reader *bufio.Reader) (string, error) {
+/*func readCommand(reader *bufio.Reader) (string, error) {
 	var cmdString strings.Builder
 	buffer := make([]byte, 1024) // Larger buffer size
 	for {
@@ -129,4 +136,4 @@ func testing() {
 		fmt.Printf("\033[92m[PASS]\033[39m\n")
 		fmt.Printf("%v\n", string(dat))
 	}
-}
+}*/
