@@ -5,18 +5,22 @@ import (
 	"os"
 
 	//"os/exec"
+	"os/signal"
 	"syscall"
 
+	"time"
+
 	"github.com/go-ini/ini"
+	"golang.org/x/sys/unix"
 )
 
 var cfg ini.File
 
 func main() {
-	fmt.Printf("\033[39mReading configuration... ")
+	fmt.Printf("\033[97mReading configuration... ")
 	cfg, err := ini.Load("/etc/init.ini")
 	if err != nil {
-		fmt.Printf("\033[91m[FAIL]\033[39m\nCritical error while reading /etc/init.ini:\n%v\n\nThe system will now freeze.", err.Error())
+		panicScreen(err)
 		for true {
 		}
 	} else {
@@ -31,109 +35,108 @@ func main() {
 		fmt.Printf("Remounting / as writable... ")
 		err := syscall.Mount("", "/", "", syscall.MS_REMOUNT, "")
 		if err != nil {
-			fmt.Printf("\033[91m[FAIL]\033[39m\nCritical error while remounting /:\n%v\n\nThe system will continue as read-only.", err.Error())
+			panicScreen(err)
 		} else {
 			fmt.Printf("\033[92m[OK]\033[39m\n")
 		}
 	}
 
-	fmt.Printf("Spawning the Go Shell (gosh)...\n")
+	fmt.Printf("Creating stdio... ")
+	fstdin, err0 := os.Create("/dev/stdin")
+	fstdout, err1 := os.Create("/dev/stdout")
+	fstderr, err2 := os.Create("/dev/stderr")
+	if err0 != nil && err1 != nil && err2 != nil {
+		panicScreen(err0)
+		for true {
+		}
+	} else {
+		fmt.Printf("\033[92m[OK]\033[39m\n")
+	}
+
+	fmt.Printf("Spawning the Fallback Shell (fallsh)\n")
+
+	procAttr := &syscall.ProcAttr{
+		Dir:   "/",
+		Env:   []string{"OSENV=malino"},
+		Files: []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()},
+		Sys:   nil,
+	}
 
 	//exec.Command("/bin/gosh", "")
-	syscall.Exec("/bin/gosh", []string{"/bin/gosh"}, os.Environ())
+	//syscall.Exec("/bin/gosh", []string{"/bin/gosh"}, os.Environ())
+
+	var wstatus syscall.WaitStatus
+
+	pid, err := syscall.ForkExec("/sbin/malino", nil, procAttr)
+	if err != nil {
+		fmt.Printf("err: could not execute malino OS")
+	} else {
+		_, err = syscall.Wait4(pid, &wstatus, 0, nil)
+		if err != nil {
+			fmt.Printf("err: could not execute malino OS")
+		}
+	}
+
+	if wstatus.Exited() {
+		// Process exited
+		// Create a new error
+		fmt.Printf("err: malino OS exited with code %d", wstatus.ExitStatus())
+	}
+
+	pid, err = syscall.ForkExec("/bin/fallsh", nil, procAttr)
+	if err != nil {
+		panicScreen(err)
+	} else {
+		_, err = syscall.Wait4(pid, &wstatus, 0, nil)
+		if err != nil {
+			panicScreen(err)
+		}
+	}
+
+	if wstatus.Exited() {
+		// Process exited
+		// Create a new error
+		panicScreen(fmt.Errorf("fallback shell crashed. Exit code: %d", wstatus.ExitStatus()))
+	}
 
 	for true {
 	}
-
-	/*reader := bufio.NewReader(os.Stdin)
-	for running {
-		fmt.Print("# ")
-		cmdString, err := readCommand(reader)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-		err = runCommand(cmdString)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
-	}*/
 }
 
-/*func readCommand(reader *bufio.Reader) (string, error) {
-	var cmdString strings.Builder
-	buffer := make([]byte, 1024) // Larger buffer size
-	for {
-		n, err := reader.Read(buffer)
-		if err != nil {
-			return "", err
+func setupSignalHandler() {
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, os.Interrupt,
+		syscall.SIGCHLD,
+		syscall.SIGTERM,
+		syscall.SIGKILL)
+
+	go func() {
+		for sig := range c {
+			fmt.Printf("captured %v", sig)
 		}
-		for i := 0; i < n; i++ {
-			char := buffer[i]
-			if char == '\n' {
-				fmt.Println()
-				return cmdString.String(), nil
-			}
-			fmt.Print(string(char))
-			cmdString.WriteByte(char)
-		}
-	}
+	}()
 }
 
-func runCommand(commandStr string) error {
-	commandStr = strings.TrimSuffix(commandStr, "\n")
-	arrCommandStr := strings.Fields(commandStr)
-	switch arrCommandStr[0] {
-	case "exit":
-		running = false
-		// add another case here for custom commands.
-	case "help":
-		fmt.Printf("golinux commands:\n\nhelp - shows this menu\nexit - exits (also kernel panics)\nhalt - halts linux\ntest - tests functionality\n")
-	case "halt":
-		fmt.Printf("syncing disks...\n")
-		syscall.Syscall(syscall.SYS_SYNC, 0, 0, 0)
-		fmt.Printf("rebooting...\n")
-		syscall.Syscall(syscall.SYS_REBOOT, 0xfee1dead, 672274793, 0x1234567)
-	case "test":
-		fmt.Printf("Starting tests...\n")
-		testing()
-	default:
-		fmt.Printf("invalid command\n")
+func panicScreen(err error) {
+	fmt.Print("\033[104m\033[H\033[J")
+	fmt.Printf("A problem has been detected and golinux has been frozen because program execution literally cannot continue.\n\n%v\n\n", err.Error())
+	fmt.Println("If this is the first time you've seen this error screen, restart your computer. If this screen appears again, follow these steps:\n")
+	fmt.Println("Check to make sure that the configuration file \"/etc/init.ini\" exists and is correct.\n")
+	fmt.Println("If problems continue, on another device, go to https://github.com/malinoOS/golinux. Click on the issues tab, and click \"New issue\". From there,")
+	fmt.Println("Write an accurate description of your problem and submit the issue. You should get a response within the next couple of hours or days.\n")
+
+	fmt.Print("Shutting down in 10")
+	time.Sleep(time.Second)
+	fmt.Print("\b \b\b \b9")
+	time.Sleep(time.Second)
+	i := 9
+	for i != 0 {
+		i--
+		fmt.Printf("\b%v", i)
+		time.Sleep(time.Second)
 	}
-	return nil
+	fmt.Printf("syncing disks...\n")
+	unix.Sync()
+	fmt.Printf("shutting down...\n")
+	unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF)
 }
-
-func testing() {
-	fmt.Printf("File storage... ")
-	d := []byte("golinux!\ngo\nlinux!\n")
-	err := os.WriteFile("/tmp/golinux.txt", d, 0644)
-	if err != nil {
-		fmt.Printf("\033[91m[FAILED WRITE]\033[39m\n")
-		fmt.Printf("%v", err.Error())
-		return
-	} else {
-		syscall.Syscall(syscall.SYS_SYNC, 0, 0, 0)
-		dat, err := os.ReadFile("/tmp/golinux.txt")
-		if err != nil {
-			fmt.Printf("\033[91m[FAILED READ]\033[39m\n")
-			return
-		} else {
-			if string(dat) == "golinux!\ngo\nlinux!\n" {
-				fmt.Printf("\033[92m[PASS]\033[39m\n")
-			} else {
-				fmt.Printf("\033[91m[FAILED COMPARE]\033[39m\n")
-				return
-			}
-		}
-	}
-
-	fmt.Printf("Config read... ")
-	dat, err := os.ReadFile("/etc/init.ini")
-	if err != nil {
-		fmt.Printf("\033[91m[FAILED READ]\033[39m\n")
-		fmt.Printf("%v", err.Error())
-		return
-	} else {
-		fmt.Printf("\033[92m[PASS]\033[39m\n")
-		fmt.Printf("%v\n", string(dat))
-	}
-}*/
