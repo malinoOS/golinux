@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/go-ini/ini"
-	"golang.org/x/sys/unix"
 )
 
 var cfg ini.File
@@ -53,50 +52,22 @@ func main() {
 		fmt.Printf("\033[92m[OK]\033[39m\n")
 	}
 
-	fmt.Printf("Spawning the Fallback Shell (fallsh)\n")
+	setupSignalHandler()
 
-	procAttr := &syscall.ProcAttr{
-		Dir:   "/",
-		Env:   []string{"OSENV=malino"},
-		Files: []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()},
-		Sys:   nil,
-	}
-
-	//exec.Command("/bin/gosh", "")
-	//syscall.Exec("/bin/gosh", []string{"/bin/gosh"}, os.Environ())
-
-	var wstatus syscall.WaitStatus
-
-	pid, err := syscall.ForkExec("/sbin/malino", nil, procAttr)
-	if err != nil {
-		fmt.Printf("err: could not execute malino OS")
+	if cfg.Section("init").Key("malinoMode").String() == "true" {
+		fmt.Printf("Starting the malino environment...\n")
+		spawnProcess("/sbin/malino", "/", []string{"MALINO=malino", "INIT=golinux"}, []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()})
 	} else {
-		_, err = syscall.Wait4(pid, &wstatus, 0, nil)
-		if err != nil {
-			fmt.Printf("err: could not execute malino OS")
-		}
+		fmt.Printf("Starting %v...\n", cfg.Section("init").Key("exec").String())
+		spawnProcess(cfg.Section("init").Key("exec").String(), "/", []string{"INIT=golinux"}, []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()})
 	}
 
-	if wstatus.Exited() {
-		// Process exited
-		// Create a new error
-		fmt.Printf("err: malino OS exited with code %d", wstatus.ExitStatus())
-	}
+	// Start fallback shell
 
-	pid, err = syscall.ForkExec("/bin/fallsh", nil, procAttr)
+	fmt.Printf("Spawning the Fallback Shell (fallsh)\n")
+	err = spawnProcess(cfg.Section("init").Key("exec").String(), "/", []string{"INIT=golinux"}, []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()})
 	if err != nil {
 		panicScreen(err)
-	} else {
-		_, err = syscall.Wait4(pid, &wstatus, 0, nil)
-		if err != nil {
-			panicScreen(err)
-		}
-	}
-
-	if wstatus.Exited() {
-		// Process exited
-		// Create a new error
-		panicScreen(fmt.Errorf("fallback shell crashed. Exit code: %d", wstatus.ExitStatus()))
 	}
 
 	for true {
@@ -110,11 +81,11 @@ func setupSignalHandler() {
 		syscall.SIGTERM,
 		syscall.SIGKILL)
 
-	go func() {
+	/*go func() {
 		for sig := range c {
 			fmt.Printf("captured %v", sig)
 		}
-	}()
+	}()*/
 }
 
 func panicScreen(err error) {
@@ -136,7 +107,37 @@ func panicScreen(err error) {
 		time.Sleep(time.Second)
 	}
 	fmt.Printf("syncing disks...\n")
-	unix.Sync()
+	syscall.Sync()
 	fmt.Printf("shutting down...\n")
-	unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF)
+	syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
+}
+
+func spawnProcess(proc string, startDir string, env []string, f []uintptr) error {
+	procAttr := &syscall.ProcAttr{
+		Dir:   startDir,
+		Env:   env,
+		Files: f,
+		Sys:   nil,
+	}
+	var wstatus syscall.WaitStatus
+
+	pid, err := syscall.ForkExec(proc, nil, procAttr)
+	if err != nil {
+		fmt.Printf("err: could not execute %v: %v\n", proc, err.Error())
+		return err
+	} else {
+		_, err = syscall.Wait4(pid, &wstatus, 0, nil)
+		if err != nil {
+			fmt.Printf("err: could not execute %v: %v\n", proc, err.Error())
+			return err
+		}
+	}
+
+	if wstatus.Exited() {
+		// Process exited
+		// Create a new error
+		fmt.Printf("err: %v exited with code %d\n", proc, wstatus.ExitStatus())
+		return fmt.Errorf("%v exited with code %d\n", proc, wstatus.ExitStatus())
+	}
+	return nil
 }

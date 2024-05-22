@@ -7,8 +7,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"golang.org/x/sys/unix"
 )
 
 var running bool = true
@@ -35,29 +33,11 @@ func main() {
 	}
 }
 
-/*func setNonCanonicalMode() {
-	// Retrieve current terminal settings
-	var termios unix.Termios
-	_, _, err := unix.Syscall(unix.SYS_IOCTL, os.Stdin.Fd(), unix.TCGETS, uintptr(unsafe.Pointer(&termios)))
-	if err != 0 {
-		fmt.Println("Error getting terminal settings:", err)
-		os.Exit(1)
-	}
-
-	// Set non-canonical mode
-	termios.Lflag &^= unix.ICANON | unix.ECHO
-	_, _, err = unix.Syscall(unix.SYS_IOCTL, os.Stdin.Fd(), unix.TCSETS, uintptr(unsafe.Pointer(&termios)))
-	if err != 0 {
-		fmt.Println("Error setting terminal settings:", err)
-		os.Exit(1)
-	}
-}*/
-
 func readCommand() string {
 	var buf [1]byte
 	var cmdString strings.Builder
 	for {
-		n, err := unix.Read(int(os.Stdin.Fd()), buf[:])
+		n, err := syscall.Read(int(os.Stdin.Fd()), buf[:])
 		if err != nil {
 			fmt.Printf("Critcal error while reading characters:\n%v", err)
 			for true {
@@ -108,14 +88,14 @@ func runCommand(commandStr string) error {
 		fmt.Printf("golinux/gosh commands:\n\nhelp - shows this menu\nexit - exits (also kernel panics)\nreboot - reboots the system\nshutdown - shuts down\ntest - tests functionality\ntasklist - lists processes\ngr - goroutine test\ncd [folder] - change directory\nls - list the current directory\ncat [file] - dump file\n")
 	case "reboot":
 		fmt.Printf("syncing disks...\n")
-		unix.Sync()
+		syscall.Sync()
 		fmt.Printf("rebooting...\n")
-		unix.Reboot(unix.LINUX_REBOOT_CMD_RESTART)
+		syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
 	case "shutdown":
 		fmt.Printf("syncing disks...\n")
-		unix.Sync()
+		syscall.Sync()
 		fmt.Printf("shutting down...\n")
-		unix.Reboot(unix.LINUX_REBOOT_CMD_POWER_OFF)
+		syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
 	case "test":
 		fmt.Printf("Starting tests...\n")
 		//testing()

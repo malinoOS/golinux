@@ -20,7 +20,7 @@ createVM:
 	sudo cp $$(ls -t /boot/initrd* | head -n1) disk/boot/
 	sudo grub-install /dev/$(DRIVE) --skip-fs-probe --boot-directory=disk/boot --target=i386-pc
 	sudo printf "set default=0\nset timeout=1\n\nmenuentry \"golinux\" {\n    linux $$(ls -t /boot/vmlinuz* | head -n1) root=/dev/sda1 ro\n    initrd $$(ls -t /boot/initrd* | head -n1)\n}" | sudo tee disk/boot/grub/grub.cfg
-	sudo printf "[init]\nprintSplashMessage = true\nremountRootPartitionAsWritable = true" | sudo tee disk/etc/init.ini
+	sudo printf "[init]\nprintSplashMessage = true\nremountRootPartitionAsWritable = true\nmalinoMode = true\nexec = /bin/fallsh" | sudo tee disk/etc/init.ini
 	sudo umount disk
 	rm -rf disk
 	sudo qemu-nbd -d /dev/$(DRIVE)
