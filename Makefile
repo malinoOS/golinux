@@ -66,7 +66,4 @@ install:
 	sudo qemu-nbd -d /dev/$(DRIVE)
 	
 qemu:
-	sudo modprobe nbd max_part=8
-	sudo qemu-nbd -c /dev/$(DRIVE) linux.qcow2
-	sudo qemu-system-x86_64 -hda /dev/$(DRIVE) -m 4G -enable-kvm -smp 4
-	sudo qemu-nbd -d /dev/$(DRIVE)
+	qemu-system-x86_64 -drive file=linux.qcow2,format=qcow2 -m 4G -enable-kvm -smp 4
