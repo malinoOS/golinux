@@ -41,12 +41,12 @@ prepare:
 buildInit:
 	cd $(parentFolder)/init; \
 	go mod tidy; \
-	go build -o $(parentFolder)/bin/init
+	go build -o $(parentFolder)/bin/init -ldflags "-X main.Version=$(shell date +%y%m%d)"
 	
 buildFallsh:
 	cd $(parentFolder)/fallsh; \
 	go mod tidy; \
-	go build -o $(parentFolder)/bin/fallsh
+	go build -o $(parentFolder)/bin/fallsh -ldflags "-X main.Version=$(shell date +%y%m%d)"
 	
 #buildGkilo:
 #	cd $(parentFolder)/gkilo/src; \

@@ -6,22 +6,22 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
-	"time"
+	"unsafe"
 )
 
 var running bool = true
-var console int = 0
+var oldState *syscall.Termios
+var Version string = "undefined"
 
 func main() {
-	fmt.Printf("fallback shell\n")
-	// Set up non-canonical mode for reading from /dev/console
-	//setNonCanonicalMode()
-	//syscall.Open("/dev/console", syscall.O_RDWR|syscall.O_NDELAY, syscall.SYS_IOPERM)
+	fmt.Printf("fallback shell v%v\n", Version)
+	setNonCanonicalMode()
+	defer resetTerminalMode()
 
 	for running {
 		currentDir, err := os.Getwd()
 		if err != nil {
-			fmt.Printf("Critcal error while getting working directory:\n%v", err)
+			fmt.Printf("Critical error while getting working directory:\n%v", err)
 			return
 		}
 		fmt.Printf("\033[31m%v #\033[39m ", currentDir)
@@ -39,9 +39,8 @@ func readCommand() string {
 	for {
 		n, err := syscall.Read(int(os.Stdin.Fd()), buf[:])
 		if err != nil {
-			fmt.Printf("Critcal error while reading characters:\n%v", err)
-			for true {
-			}
+			fmt.Printf("Critical error while reading characters:\n%v", err)
+			return ""
 		}
 		if n > 0 {
 			char := buf[0]
@@ -50,25 +49,20 @@ func readCommand() string {
 				return cmdString.String()
 			} else if char == 127 { // ASCII code for backspace
 				if cmdString.Len() > 0 {
-					// Convert the builder to a string, remove the last character, and create a new builder
 					cmd := cmdString.String()
 					if len(cmd) > 1 {
 						cmdString.Reset()
 						cmdString.WriteString(cmd[:len(cmd)-1])
-						// Move the cursor back and clear the character
 						fmt.Print("\b \b")
 					} else {
-						// If only one character is present, simply reset the builder
 						cmdString.Reset()
-						fmt.Print("\b \b") // Clear the character
+						fmt.Print("\b \b")
 					}
 				}
 			} else {
 				fmt.Print(string(char))
 				cmdString.WriteByte(char)
 			}
-		} else {
-			time.Sleep(time.Millisecond * 10)
 		}
 	}
 }
@@ -77,28 +71,23 @@ func runCommand(commandStr string) error {
 	commandStr = strings.TrimSuffix(commandStr, "\n")
 	arrCommandStr := strings.Fields(commandStr)
 	if len(arrCommandStr) == 0 {
-		// Empty command, just return
 		return nil
 	}
 	switch arrCommandStr[0] {
 	case "exit":
 		running = false
-		// add another case here for custom commands.
 	case "help":
-		fmt.Printf("golinux/gosh commands:\n\nhelp - shows this menu\nexit - exits (also kernel panics)\nreboot - reboots the system\nshutdown - shuts down\ntest - tests functionality\ntasklist - lists processes\ngr - goroutine test\ncd [folder] - change directory\nls - list the current directory\ncat [file] - dump file\n")
+		fmt.Println("golinux/gosh commands:\n\nhelp - shows this menu\nexit - exits (also kernel panics)\nreboot - reboots the system\nshutdown - shuts down\ntasklist - lists processes\ngr - goroutine test\ncd [folder] - change directory\nls - list the current directory\ncat [file] - dump file")
 	case "reboot":
-		fmt.Printf("syncing disks...\n")
+		fmt.Println("syncing disks...")
 		syscall.Sync()
-		fmt.Printf("rebooting...\n")
+		fmt.Println("rebooting...")
 		syscall.Reboot(syscall.LINUX_REBOOT_CMD_RESTART)
 	case "shutdown":
-		fmt.Printf("syncing disks...\n")
+		fmt.Println("syncing disks...")
 		syscall.Sync()
-		fmt.Printf("shutting down...\n")
+		fmt.Println("shutting down...")
 		syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
-	case "test":
-		fmt.Printf("Starting tests...\n")
-		//testing()
 	case "tasklist":
 		matches, _ := filepath.Glob("/proc/*/exe")
 		for _, file := range matches {
@@ -108,21 +97,18 @@ func runCommand(commandStr string) error {
 				fmt.Printf("PID: %s, Process: %+v\n", pid, target)
 			}
 		}
-
 	case "gr":
 		go test1()
 		go test2()
-
 	case "cd":
 		cd(arrCommandStr)
 	case "ls":
-		currentDir, _ := os.Getwd() // not error checking!11!!!11
+		currentDir, _ := os.Getwd()
 		entries, err := os.ReadDir(currentDir)
 		if err != nil {
 			fmt.Printf("ls: could not list directory: %v\n", err)
 			return nil
 		}
-
 		for _, e := range entries {
 			if e.IsDir() {
 				fmt.Print("\033[94m")
@@ -137,10 +123,9 @@ func runCommand(commandStr string) error {
 		if strings.HasPrefix(arrCommandStr[1], "/") {
 			file = arrCommandStr[1]
 		} else {
-			currentDir, _ := os.Getwd() // not error checking!11!!!11
+			currentDir, _ := os.Getwd()
 			file = fmt.Sprintf("%v/%v", currentDir, arrCommandStr[1])
 		}
-
 		dat, err := os.ReadFile(file)
 		if err != nil {
 			fmt.Printf("cat: could not read file: %v\n", err)
@@ -148,25 +133,14 @@ func runCommand(commandStr string) error {
 		}
 		fmt.Println(string(dat))
 	default:
-		fmt.Printf("invalid command\n")
+		fmt.Println("invalid command")
 	}
 	return nil
-}
-
-func test1() {
-	fmt.Printf("%v\n", 100+43)
-	return
-}
-
-func test2() {
-	fmt.Printf("%v\n", 40+2)
-	return
 }
 
 func cd(arrCommandStr []string) {
 	dir := ""
 	if arrCommandStr[1] == ".." {
-		// Move to parent directory
 		currentDir, _ := os.Getwd()
 		dir = filepath.Dir(currentDir)
 	} else if strings.HasPrefix(arrCommandStr[1], "/") {
@@ -175,7 +149,6 @@ func cd(arrCommandStr []string) {
 		currentDir, _ := os.Getwd()
 		dir = fmt.Sprintf("%v/%v", currentDir, arrCommandStr[1])
 	}
-
 	fileInfo, err := os.Stat(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -195,6 +168,45 @@ func cd(arrCommandStr []string) {
 		} else {
 			fmt.Printf("cd: could not change directory: %v isn't a directory\n", dir)
 			return
+		}
+	}
+}
+
+func test1() {
+	fmt.Printf("%v\n", 100+43)
+	return
+}
+
+func test2() {
+	fmt.Printf("%v\n", 40+2)
+	return
+}
+
+func setNonCanonicalMode() {
+	fd := int(os.Stdin.Fd())
+	var termios syscall.Termios
+	_, _, errno := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TCGETS), uintptr(unsafe.Pointer(&termios)), 0, 0, 0)
+	if errno != 0 {
+		fmt.Printf("Error getting terminal attributes: %v\n", errno)
+		os.Exit(1)
+	}
+	oldState = &termios
+	termios.Lflag &^= syscall.ICANON | syscall.ECHO
+	termios.Cc[syscall.VMIN] = 1
+	termios.Cc[syscall.VTIME] = 0
+	_, _, errno = syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TCSETS), uintptr(unsafe.Pointer(&termios)), 0, 0, 0)
+	if errno != 0 {
+		fmt.Printf("Error setting terminal attributes: %v\n", errno)
+		os.Exit(1)
+	}
+}
+
+func resetTerminalMode() {
+	if oldState != nil {
+		fd := int(os.Stdin.Fd())
+		_, _, errno := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), uintptr(syscall.TCSETS), uintptr(unsafe.Pointer(oldState)), 0, 0, 0)
+		if errno != 0 {
+			fmt.Printf("Error resetting terminal attributes: %v\n", errno)
 		}
 	}
 }

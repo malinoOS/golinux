@@ -14,33 +14,34 @@ import (
 )
 
 var cfg ini.File
+var Version string = "undefined"
 
 func main() {
-	fmt.Printf("\033[97mReading configuration... ")
+	fmt.Print("\033[97mReading configuration... ")
 	cfg, err := ini.Load("/etc/init.ini")
 	if err != nil {
 		panicScreen(err)
 		for true {
 		}
 	} else {
-		fmt.Printf("\033[92m[OK]\033[39m\n")
+		fmt.Println("\033[92m[OK]\033[39m")
 	}
 
 	if cfg.Section("init").Key("printSplashMessage").String() == "true" {
-		fmt.Printf("\033[96mgolinux!\033[39m\n")
+		fmt.Printf("\033[96mgolinux!\033[39m %v\n", Version)
 	}
 
 	if cfg.Section("init").Key("remountRootPartitionAsWritable").String() == "true" {
-		fmt.Printf("Remounting / as writable... ")
+		fmt.Print("Remounting / as writable... ")
 		err := syscall.Mount("", "/", "", syscall.MS_REMOUNT, "")
 		if err != nil {
 			panicScreen(err)
 		} else {
-			fmt.Printf("\033[92m[OK]\033[39m\n")
+			fmt.Println("\033[92m[OK]\033[39m")
 		}
 	}
 
-	fmt.Printf("Creating stdio... ")
+	fmt.Print("Creating stdio... ")
 	fstdin, err0 := os.Create("/dev/stdin")
 	fstdout, err1 := os.Create("/dev/stdout")
 	fstderr, err2 := os.Create("/dev/stderr")
@@ -49,13 +50,13 @@ func main() {
 		for true {
 		}
 	} else {
-		fmt.Printf("\033[92m[OK]\033[39m\n")
+		fmt.Println("\033[92m[OK]\033[39m")
 	}
 
 	setupSignalHandler()
 
 	if cfg.Section("init").Key("malinoMode").String() == "true" {
-		fmt.Printf("Starting the malino environment...\n")
+		fmt.Println("Starting the malino environment...")
 		spawnProcess("/sbin/malino", "/", []string{"MALINO=malino", "INIT=golinux"}, []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()})
 	} else {
 		fmt.Printf("Starting %v...\n", cfg.Section("init").Key("exec").String())
@@ -64,7 +65,7 @@ func main() {
 
 	// Start fallback shell
 
-	fmt.Printf("Spawning the Fallback Shell (fallsh)\n")
+	fmt.Println("Spawning the Fallback Shell (fallsh)")
 	err = spawnProcess(cfg.Section("init").Key("exec").String(), "/", []string{"INIT=golinux"}, []uintptr{fstdin.Fd(), fstdout.Fd(), fstderr.Fd()})
 	if err != nil {
 		panicScreen(err)
@@ -106,9 +107,9 @@ func panicScreen(err error) {
 		fmt.Printf("\b%v", i)
 		time.Sleep(time.Second)
 	}
-	fmt.Printf("syncing disks...\n")
+	fmt.Println("syncing disks...")
 	syscall.Sync()
-	fmt.Printf("shutting down...\n")
+	fmt.Println("shutting down...")
 	syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
 }
 
